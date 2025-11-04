@@ -5,12 +5,16 @@ A powerful Python tool for searching strings within SQLite database files across
 ## Features
 
 - **Multi-string Search**: Search for multiple strings simultaneously using comma-separated values
+- **Concurrent Processing**: Parallel processing of multiple SQLite databases using configurable worker threads
 - **Recursive Directory Scanning**: Automatically discovers SQLite databases regardless of file extension
+- **List File Support**: Scan specific SQLite files from a list file (e.g., `discovered.txt`)
+- **Discovered File Tracking**: Automatically saves all discovered SQLite database paths to `discovered.txt`
+- **Append Mode**: Option to preserve and append to existing `discovered.txt` instead of clearing it
 - **Case-Insensitive Search**: Finds matches regardless of case
 - **Folder Filtering**: Target specific directories (e.g., Microsoft, Mozilla, Google folders)
 - **Comprehensive Reporting**: Detailed output showing file paths, table names, columns, and matched content
-- **Progress Tracking**: Real-time progress updates and statistics
-- **Logging**: Full logging support with configurable verbosity
+- **Real-time Progress Tracking**: Live updates with cumulative match counts and SQLite database locations
+- **Enhanced Logging**: Detailed logging with SQLite database locations, file sizes, and match statistics
 - **Large File Handling**: Automatically skips files larger than 100MB to prevent memory issues
 
 ## Installation
@@ -68,11 +72,29 @@ python sqlite_search.py "C:\Users\User\AppData" "password" --verbose
 python sqlite_search.py "/mnt/c/Investigation/a.smith/AppData" "zaffrevelox,13221442.hta,pfusioncaptcha.com,news.axonbyte.org,captcha_privacy.epub" --folders Microsoft,Mozilla,Google --verbose
 ```
 
+#### Scan from List File
+```bash
+python sqlite_search.py "/mnt/c/Investigation/a.smith/AppData" "zaffrevelox" --list discovered.txt
+```
+
+#### Append to Existing Discovered File
+```bash
+python sqlite_search.py "/mnt/c/Investigation/a.smith/AppData" "zaffrevelox" --no-clear
+```
+
+#### With Custom Worker Count
+```bash
+python sqlite_search.py "/mnt/c/investigation/" "keyword" --workers 8
+```
+
 ### Command Line Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
-| `--folders` | `-f` | Comma-separated list of folders to target |
+| `--folders` | `-f` | Comma-separated list of folders to target (mutually exclusive with --list) |
+| `--list` | `-l` | Path to file containing SQLite file paths to scan (one per line, e.g., discovered.txt). Mutually exclusive with --folders |
+| `--workers` | `-w` | Number of concurrent workers for database processing (default: 4) |
+| `--no-clear` | `--append` | Do not clear discovered.txt at start, append to existing file instead |
 | `--verbose` | `-v` | Enable verbose logging with debug information |
 | `--help` | `-h` | Show help message and exit |
 
@@ -81,14 +103,22 @@ python sqlite_search.py "/mnt/c/Investigation/a.smith/AppData" "zaffrevelox,1322
 The tool provides comprehensive output including:
 
 ### Console Output
-- Real-time progress updates
-- Found SQLite databases
+- Real-time progress updates with cumulative match counts
+- SQLite database locations with file sizes for every database found
 - Match details with file paths, table names, and columns
-- Summary statistics
+- Summary statistics including total matches found
 
-### Log File
+### Discovered File (`discovered.txt`)
+- Automatically saves all discovered SQLite database paths in real-time
+- One path per line with absolute file paths
+- Can be used with `--list` option for targeted scanning
+- Preserved with `--no-clear` option for cumulative tracking across runs
+
+### Log File (`sqlite_search.log`)
 - Detailed logging saved to `sqlite_search.log`
 - Timestamps for all operations
+- SQLite database locations and sizes
+- Cumulative match counts in progress updates
 - Error handling and warnings
 
 ### Final Report
@@ -101,6 +131,7 @@ Search Strings: 'zaffrevelox', 'password', 'email' (case-insensitive)
 Total Files Processed: 1,234
 SQLite Databases Found: 15
 Total Matches Found: 3
+Discovered SQLite files saved to: discovered.txt
 ================================================================================
 
 MATCHES FOUND:
@@ -142,17 +173,21 @@ Match #2:
 
 ### How It Works
 
-1. **File Discovery**: Recursively scans the target directory for files
-2. **SQLite Detection**: Attempts to open each file as a SQLite database
-3. **Table Enumeration**: Discovers all tables within each database
-4. **Content Search**: Searches through all columns in all tables
-5. **Match Reporting**: Records matches with full context information
+1. **File Discovery**: Recursively scans the target directory for files (or reads from list file)
+2. **Candidate Collection**: Filters files by size (>= 96 bytes) and collects candidates
+3. **Concurrent Processing**: Uses ThreadPoolExecutor to process multiple SQLite databases in parallel
+4. **SQLite Detection**: Attempts to open each file as a SQLite database and saves path to `discovered.txt`
+5. **Table Enumeration**: Discovers all tables within each database
+6. **Content Search**: Searches through all columns in all tables for target strings
+7. **Match Reporting**: Records matches with full context information and cumulative totals
 
 ### Performance Considerations
 
+- **Concurrent Processing**: Uses multiple worker threads (default: 4) for parallel database processing
 - **File Size Limit**: Automatically skips files larger than 100MB
-- **Memory Efficient**: Processes databases one at a time
-- **Progress Tracking**: Updates every 1000 files processed
+- **Memory Efficient**: Processes databases concurrently with thread-safe operations
+- **Progress Tracking**: Updates every 1000 files processed with cumulative statistics
+- **Real-time Updates**: `discovered.txt` is updated immediately as each SQLite database is found
 - **Error Handling**: Continues processing even if individual databases fail
 
 ### Supported SQLite Features
@@ -176,6 +211,21 @@ sudo python sqlite_search.py "/path/to/directory" "search_string"
 ```bash
 # Use folder filtering to limit scope
 python sqlite_search.py "/path/to/directory" "search_string" --folders Microsoft,Google
+
+# Increase worker count for faster processing
+python sqlite_search.py "/path/to/directory" "search_string" --workers 8
+```
+
+**Scan Specific Files from Previous Run**
+```bash
+# Use discovered.txt from previous scan to target specific files
+python sqlite_search.py "/path/to/directory" "search_string" --list discovered.txt
+```
+
+**Cumulative Tracking Across Runs**
+```bash
+# Append to discovered.txt instead of clearing it
+python sqlite_search.py "/path/to/directory" "search_string" --no-clear
 ```
 
 **Verbose Debugging**
@@ -189,8 +239,14 @@ python sqlite_search.py "/path/to/directory" "search_string" --verbose
 Check the `sqlite_search.log` file for detailed information about:
 - Files that couldn't be opened
 - Database access errors
-- Processing statistics
-- Performance metrics
+- Processing statistics with cumulative match counts
+- SQLite database locations and file sizes
+- Performance metrics and progress updates
+
+Check the `discovered.txt` file for:
+- All discovered SQLite database paths (one per line)
+- Absolute file paths for all found databases
+- Can be used as input for `--list` option
 
 ## Contributing
 
@@ -209,6 +265,18 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 This project is open source. Please check the license file for details.
 
 ## Changelog
+
+### Version 2.0.0
+- **Concurrent Processing**: Added multi-threaded processing with configurable worker count
+- **Discovered File Tracking**: Automatically saves all SQLite database paths to `discovered.txt`
+- **List File Support**: Added `--list` option to scan specific SQLite files from a list
+- **Append Mode**: Added `--no-clear` / `--append` option to preserve `discovered.txt` across runs
+- **Enhanced Logging**: 
+  - SQLite database locations with file sizes displayed for every database found
+  - Cumulative total matches count in progress updates
+  - Real-time progress tracking with detailed statistics
+- **Real-time Updates**: `discovered.txt` is updated immediately as databases are discovered
+- **Improved Error Handling**: Better logging and error reporting throughout
 
 ### Version 1.0.0
 - Initial release
